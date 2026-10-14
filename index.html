@@ -246,13 +246,20 @@
             font-family: 'Roboto', sans-serif;
         }
         .stt-cell { cursor: pointer; position: relative; font-weight: 500; }
-        .stt-cell:hover { background-color: #edf2f7; }
         
         #helper-body tr {
-            cursor: grab;
+            cursor: pointer;
+            transition: background-color 0.15s ease;
+        }
+        #helper-body tr:hover {
+            background-color: #edf2f7;
         }
         #helper-body tr:active {
             cursor: grabbing;
+        }
+        #helper-body tr.editing-row {
+            background-color: #cbd5e1 !important;
+            font-weight: 500;
         }
         .sortable-ghost {
             opacity: 0.4;
@@ -1414,14 +1421,15 @@
                 });
                 
                 helperBody.addEventListener('click', function(event) {
-                    if (event.target.classList.contains('stt-cell')) {
-                        const itemId = parseInt(event.target.dataset.id);
-                        showActionMenu(event.target, itemId);
+                    const row = event.target.closest('tr');
+                    if (row && row.dataset.id) {
+                        const itemId = parseInt(row.dataset.id);
+                        showActionMenu(event, itemId);
                     }
                 });
 
                 document.addEventListener('click', function(event) {
-                    if (!event.target.closest('.action-menu') && !event.target.classList.contains('stt-cell')) {
+                    if (!event.target.closest('.action-menu') && !event.target.closest('#helper-body tr')) {
                         closeActionMenu();
                     }
                 });
@@ -1639,6 +1647,7 @@
                 }
                 
                 manualTotal = (item.manual && item.unit !== 'm2') ? item.totalPrice : null;
+                renderHelperTable(); // Cập nhật màu nền đậm cho hàng đang sửa
                 calculateTotalFromInputs(); // Recalculate m2 display
                 inputRow.name.focus();
                 closeActionMenu();
@@ -1648,11 +1657,11 @@
                 if (window['confirm']('Bạn có chắc chắn muốn xóa mục này?')) {
                     helperItems = helperItems.filter(item => item.id !== itemId);
                     updateSTT();
-                    renderHelperTable();
-                    calculateAndDisplayTotals();
                     if (editingItemId === itemId) {
                         resetInputRow(); // Reset if the deleted item was being edited
                     }
+                    renderHelperTable();
+                    calculateAndDisplayTotals();
                 }
                 closeActionMenu();
             }
@@ -1661,18 +1670,22 @@
                 if (isInitial) {
                     inputRow.name.value = '';
                     inputRow.unitPrice.value = '0';
+                    inputRow.vat.value = '0';
+                    inputRow.unit.value = 'm2';
+                    inputRow.unitOther.classList.add('hidden');
+                    inputRow.unitOther.value = '';
                 }
                 
                 inputRow.width.value = '0';
                 inputRow.height.value = '0';
                 inputRow.quantity.value = '1';
                 inputRow.spec.value = '';
-                inputRow.vat.value = '0';
-                inputRow.unit.value = 'm2';
-                inputRow.unitOther.classList.add('hidden');
-                inputRow.unitOther.value = '';
                 inputRow.price.value = '0';
-                inputRow.price.setAttribute('readonly', true); // Default to readonly
+                if (inputRow.unit.value === 'm2') {
+                    inputRow.price.setAttribute('readonly', true);
+                } else {
+                    inputRow.price.removeAttribute('readonly');
+                }
                 manualTotal = null;
 
                 calculateTotalFromInputs();
@@ -1695,7 +1708,7 @@
             }
 
             // --- Action Menu ---
-            function showActionMenu(targetCell, itemId) {
+            function showActionMenu(clickEvent, itemId) {
                 closeActionMenu();
                 const menu = document.createElement('div');
                 menu.className = 'action-menu';
@@ -1704,9 +1717,10 @@
                 menu.querySelector('.delete-btn').addEventListener('click', () => deleteItem(itemId));
                 
                 document.body.appendChild(menu);
-                const rect = targetCell.getBoundingClientRect();
-                menu.style.top = `${rect.top + window.scrollY}px`;
-                menu.style.left = `${rect.left + window.scrollX - menu.offsetWidth - 5}px`;
+                const topPos = clickEvent.pageY - (menu.offsetHeight / 2);
+                const leftPos = Math.max(8, clickEvent.pageX - menu.offsetWidth - 10);
+                menu.style.top = `${topPos}px`;
+                menu.style.left = `${leftPos}px`;
             }
 
             function closeActionMenu() {
@@ -1721,7 +1735,8 @@
                 helperBody.innerHTML = '';
                 helperItems.forEach(item => {
                     const row = document.createElement('tr');
-                    row.className = 'bg-white hover:bg-gray-50';
+                    const isEditingThisRow = item.id === editingItemId;
+                    row.className = isEditingThisRow ? 'editing-row' : 'bg-white';
                     row.dataset.id = item.id;
                     row.innerHTML = `
                         <td class="stt-cell" data-id="${item.id}">${item.stt}</td>
