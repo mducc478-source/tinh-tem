@@ -8,6 +8,7 @@
     <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/colresizable@1.6.0/colResizable-1.6.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/sortablejs@latest/Sortable.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700;800&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
@@ -227,7 +228,17 @@
         .btn-danger:hover { background-color: #da190b; }
         .btn-warning { background-color: #fbbf24; color: #374151; }
         .btn-warning:hover { background-color: #f59e0b; }
+        .btn-snapshot { background-color: #2563eb; color: white; }
+        .btn-snapshot:hover { background-color: #1d4ed8; }
         .hidden { display: none; }
+
+        @keyframes cameraFlashAnim {
+            0% { opacity: 0.95; }
+            100% { opacity: 0; }
+        }
+        .camera-flash-active {
+            animation: cameraFlashAnim 0.45s ease-out forwards;
+        }
         
         .JCLRgrip { height: 20px; width: 7px; background-color: #e2e8f0; margin-left: -4px; z-index: 5; }
         .JCLRgrip:hover { background-color: #a0aec0; }
@@ -282,6 +293,8 @@
             #left-sidebar,
             #tab-tinhtem,
             #customSizeModal,
+            #camera-flash-overlay,
+            #snapshot-modal,
             #tab-baogia > *:not(#quotation-output),
             .output-actions,
             .action-menu {
@@ -674,6 +687,7 @@
                 
                 <div id="quotation-output" class="hidden">
                     <div class="output-actions text-center my-8 space-x-4">
+                        <button id="quick-snapshot-btn" class="btn btn-snapshot">Chụp nhanh</button>
                         <button id="download-pdf-btn" class="btn btn-primary">Tải Báo Giá (PDF)</button>
                         <button id="toggle-edit-mode-btn" class="btn btn-warning">Chỉnh Sửa</button>
                     </div>
@@ -681,7 +695,7 @@
                         <!-- Header -->
                         <div class="flex justify-between items-center mb-4">
                             <div class="w-1/5">
-                                <img src="https://raw.githubusercontent.com/mducc478-source/images/refs/heads/main/logo_NV_xmvkd7.png" alt="Logo Công ty" style="max-width: 120px;">
+                                <img src="https://raw.githubusercontent.com/mducc478-source/images/refs/heads/main/logo_NV_xmvkd7.png" crossorigin="anonymous" alt="Logo Công ty" style="max-width: 120px;">
                             </div>
                             <div class="w-4/5 text-right">
                                 <h2 class="text-xl font-bold manual-edit">CÔNG TY TNHH ĐẦU TƯ TỔNG HỢP NHẤT VIỆT</h2>
@@ -783,6 +797,27 @@
                     </div>
                 </div>
             </section>
+
+            <!-- Hiệu ứng nháy chụp màn hình -->
+            <div id="camera-flash-overlay" class="fixed inset-0 bg-white pointer-events-none opacity-0 z-[100]"></div>
+
+            <!-- Pop-up thông báo lưu ảnh vào bộ nhớ tạm & hỏi tải ảnh về -->
+            <div id="snapshot-modal" class="modal-overlay fixed inset-0 bg-gray-900 bg-opacity-50 flex items-center justify-center p-4 hidden z-50">
+                <div class="bg-white rounded-xl shadow-2xl p-6 w-full max-w-sm text-center">
+                    <div class="mx-auto mb-3 w-12 h-12 rounded-full bg-green-100 flex items-center justify-center text-green-600">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
+                        </svg>
+                    </div>
+                    <p class="text-gray-800 font-medium text-base mb-6">
+                        Ảnh đã được lưu vào bộ nhớ tạm, bạn có muốn tải ảnh về?
+                    </p>
+                    <div class="flex justify-center space-x-4">
+                        <button type="button" id="snapshot-confirm-yes" class="px-6 py-2 bg-blue-600 text-white font-medium rounded-md hover:bg-blue-700 transition">Có</button>
+                        <button type="button" id="snapshot-confirm-no" class="px-6 py-2 bg-gray-200 text-gray-800 font-medium rounded-md hover:bg-gray-300 transition">Không</button>
+                    </div>
+                </div>
+            </div>
 
         </main>
     </div>
@@ -1351,8 +1386,14 @@
             const generateQuoteBtn = document.getElementById('generate-quote-btn');
             const quotationOutput = document.getElementById('quotation-output');
             const generationControls = document.getElementById('generation-controls');
+            const quickSnapshotBtn = document.getElementById('quick-snapshot-btn');
             const downloadPdfBtn = document.getElementById('download-pdf-btn');
             const toggleEditModeBtn = document.getElementById('toggle-edit-mode-btn');
+            const cameraFlashOverlay = document.getElementById('camera-flash-overlay');
+            const snapshotModal = document.getElementById('snapshot-modal');
+            const snapshotConfirmYes = document.getElementById('snapshot-confirm-yes');
+            const snapshotConfirmNo = document.getElementById('snapshot-confirm-no');
+            let lastCapturedBlob = null;
             const totalsDisplay = {
                 subtotal: document.getElementById('total-subtotal'),
                 vat: document.getElementById('total-vat'),
@@ -1410,8 +1451,31 @@
                 inputRow.unit.addEventListener('change', handleUnitChange);
                 
                 generateQuoteBtn.addEventListener('click', generateQuote);
+                quickSnapshotBtn.addEventListener('click', handleQuickSnapshot);
                 downloadPdfBtn.addEventListener('click', downloadQuoteAsPDF);
                 toggleEditModeBtn.addEventListener('click', toggleQuoteEditMode);
+
+                snapshotConfirmYes.addEventListener('click', function() {
+                    if (lastCapturedBlob) {
+                        const quoteNumber = document.getElementById('final-quote-number').value || '0000';
+                        const url = URL.createObjectURL(lastCapturedBlob);
+                        const a = document.createElement('a');
+                        a.href = url;
+                        a.download = `BaoGia_${quoteNumber}_300dpi.png`;
+                        document.body.appendChild(a);
+                        a.click();
+                        document.body.removeChild(a);
+                        setTimeout(() => URL.revokeObjectURL(url), 1000);
+                    }
+                    closeSnapshotModal();
+                });
+
+                snapshotConfirmNo.addEventListener('click', closeSnapshotModal);
+                snapshotModal.addEventListener('click', function(e) {
+                    if (e.target === snapshotModal) {
+                        closeSnapshotModal();
+                    }
+                });
                 
                 inputRowEl.addEventListener('keydown', function(event) {
                     if (event.key === 'Enter') {
@@ -1835,6 +1899,124 @@
                 const doPrint = () => setTimeout(() => window.print(), 100);
                 if (img && !img.complete) { img.addEventListener('load', doPrint, { once: true }); img.addEventListener('error', doPrint, { once: true }); }
                 else doPrint();
+            }
+
+            function triggerCameraFlash() {
+                cameraFlashOverlay.classList.remove('camera-flash-active');
+                void cameraFlashOverlay.offsetWidth; // Force reflow
+                cameraFlashOverlay.classList.add('camera-flash-active');
+            }
+
+            function closeSnapshotModal() {
+                snapshotModal.classList.add('hidden');
+            }
+
+            // Hàm gắn thông tin 300 DPI (11811 pixels/meter) trực tiếp vào cấu trúc file PNG (pHYs chunk)
+            async function setPngDpi(blob, dpi) {
+                try {
+                    const arrayBuffer = await blob.arrayBuffer();
+                    const uint8Array = new Uint8Array(arrayBuffer);
+                    const ppm = Math.round(dpi / 0.0254); // 300 DPI = 11811 pixels per meter
+
+                    // Tạo bảng CRC32 cho chuẩn PNG
+                    const crcTable = new Uint32Array(256);
+                    for (let n = 0; n < 256; n++) {
+                        let c = n;
+                        for (let k = 0; k < 8; k++) {
+                            c = (c & 1) ? (0xedb88320 ^ (c >>> 1)) : (c >>> 1);
+                        }
+                        crcTable[n] = c;
+                    }
+                    function crc32(buf) {
+                        let c = 0xffffffff;
+                        for (let i = 0; i < buf.length; i++) {
+                            c = crcTable[(c ^ buf[i]) & 0xff] ^ (c >>> 8);
+                        }
+                        return (c ^ 0xffffffff) >>> 0;
+                    }
+
+                    // Tạo pHYs chunk (21 bytes: 4 length + 4 type + 9 data + 4 crc)
+                    const physChunk = new Uint8Array(21);
+                    const view = new DataView(physChunk.buffer);
+                    view.setUint32(0, 9); // Độ dài dữ liệu = 9 bytes
+                    // Chunk type: 'pHYs' (112, 72, 89, 115)
+                    physChunk[4] = 112;
+                    physChunk[5] = 72;
+                    physChunk[6] = 89;
+                    physChunk[7] = 115;
+                    view.setUint32(8, ppm);  // Pixels per unit, X axis
+                    view.setUint32(12, ppm); // Pixels per unit, Y axis
+                    physChunk[16] = 1;       // Unit specifier: 1 = meter
+                    const crc = crc32(physChunk.subarray(4, 17));
+                    view.setUint32(17, crc);
+
+                    // Chèn pHYs chunk ngay sau IHDR chunk (vị trí byte 33 của file PNG)
+                    const ihdrEnd = 33;
+                    const output = new Uint8Array(uint8Array.length + physChunk.length);
+                    output.set(uint8Array.subarray(0, ihdrEnd), 0);
+                    output.set(physChunk, ihdrEnd);
+                    output.set(uint8Array.subarray(ihdrEnd), ihdrEnd + physChunk.length);
+
+                    return new Blob([output], { type: 'image/png' });
+                } catch (e) {
+                    return blob;
+                }
+            }
+
+            async function handleQuickSnapshot() {
+                if (toggleEditModeBtn.dataset.editing === 'true') {
+                    toggleQuoteEditMode();
+                }
+
+                // Hiệu ứng nháy trắng kiểu chụp hình
+                triggerCameraFlash();
+
+                const paperEl = document.getElementById('quotation-paper');
+                if (!paperEl) return;
+
+                try {
+                    // Tỉ lệ scale = 300 / 96 = 3.125 để đạt độ phân giải chuẩn 300 DPI
+                    const dpiScale = 300 / 96;
+
+                    const blobPromise = html2canvas(paperEl, {
+                        scale: dpiScale,
+                        useCORS: true,
+                        allowTaint: true,
+                        backgroundColor: '#ffffff',
+                        logging: false
+                    }).then(canvas => {
+                        return new Promise((resolve) => {
+                            canvas.toBlob(async (rawBlob) => {
+                                const hiResBlob = await setPngDpi(rawBlob, 300);
+                                lastCapturedBlob = hiResBlob;
+                                resolve(hiResBlob);
+                            }, 'image/png', 1.0);
+                        });
+                    });
+
+                    // Lưu ảnh vào bộ nhớ tạm (Clipboard)
+                    if (navigator.clipboard && window.ClipboardItem) {
+                        try {
+                            await navigator.clipboard.write([
+                                new ClipboardItem({ 'image/png': blobPromise })
+                            ]);
+                        } catch (clipErr) {
+                            const resolvedBlob = await blobPromise;
+                            try {
+                                await navigator.clipboard.write([
+                                    new ClipboardItem({ 'image/png': resolvedBlob })
+                                ]);
+                            } catch (e) {}
+                        }
+                    } else {
+                        await blobPromise;
+                    }
+
+                    // Hiển thị pop-up xác nhận tải về
+                    snapshotModal.classList.remove('hidden');
+                } catch (err) {
+                    console.error('Lỗi khi chụp báo giá:', err);
+                }
             }
 
             initialize();
